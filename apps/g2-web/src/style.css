@@ -1,0 +1,243 @@
+:root {
+  --bg-light: #f4f6f5;
+  --bg-dark: #0a0e0c;
+  --card-light: #ffffff;
+  --card-dark: #111815;
+  --border-light: #d0dbd5;
+  --border-dark: #1f2e27;
+  --text-light: #101814;
+  --text-dark: #e6f2ec;
+  --muted-light: #4a5c53;
+  --muted-dark: #8ca398;
+  --g2-green: #39ff88;
+  --g2-green-dim: #1c7a43;
+
+  --surface-bg: var(--bg-dark);
+  --surface-card: var(--card-dark);
+  --surface-border: var(--border-dark);
+  --text-primary: var(--text-dark);
+  --text-muted: var(--muted-dark);
+
+  @media (prefers-color-scheme: light) {
+    --surface-bg: var(--bg-light);
+    --surface-card: var(--card-light);
+    --surface-border: var(--border-light);
+    --text-primary: var(--text-light);
+    --text-muted: var(--muted-light);
+  }
+
+  @supports (color: light-dark(white, black)) {
+    --surface-bg: light-dark(var(--bg-light), var(--bg-dark));
+    --surface-card: light-dark(var(--card-light), var(--card-dark));
+    --surface-border: light-dark(var(--border-light), var(--border-dark));
+    --text-primary: light-dark(var(--text-light), var(--text-dark));
+    --text-muted: light-dark(var(--muted-light), var(--muted-dark));
+  }
+
+  color-scheme: light dark;
+  accent-color: var(--g2-green);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background-color: var(--surface-bg);
+  color: var(--text-primary);
+  line-height: 1.45;
+}
+
+.pact-shell {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pact-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+}
+
+.pact-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #16a34a;
+  text-transform: uppercase;
+}
+
+.pact-title {
+  margin: 2px 0 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.pact-status-pill {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(57, 255, 136, 0.12);
+  border: 1px solid rgba(57, 255, 136, 0.35);
+}
+
+.pact-lens-card {
+  color-scheme: dark;
+  background: #050806;
+  border: 1px solid #1a3326;
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: #d7fce5;
+}
+
+.pact-lens-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #70a887;
+  margin-bottom: 8px;
+}
+
+.pact-lens-screen {
+  width: 100%;
+  max-width: 576px;
+  min-height: 120px;
+  margin: 0 auto;
+  padding: 16px 18px;
+  background: radial-gradient(circle at 50% 35%, #091910 0%, #020403 100%);
+  border: 1px solid #1c442e;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+}
+
+.pact-lens-pre {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 18px;
+  line-height: 1.55;
+  letter-spacing: 0.03em;
+  color: var(--g2-green);
+  text-shadow: 0 0 8px rgba(57, 255, 136, 0.35);
+  white-space: pre;
+}
+
+.pact-lens-screen[data-dim="true"] .pact-lens-pre {
+  color: var(--g2-green-dim);
+  text-shadow: none;
+}
+
+.pact-controls-card,
+.pact-logs-card {
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.pact-section-title {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.pact-btn-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 8px;
+}
+
+.pact-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--surface-border);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.pact-btn:hover {
+  border-color: #2ecc71;
+  background: rgba(46, 204, 113, 0.08);
+}
+
+.pact-btn[data-active="true"] {
+  border-color: #39ff88;
+  background: rgba(57, 255, 136, 0.16);
+}
+
+.btn-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: rgba(57, 255, 136, 0.18);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+
+.pact-logs-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.pact-logs-header .pact-section-title {
+  margin-bottom: 0;
+}
+
+.pact-btn-small {
+  padding: 4px 10px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 1px solid var(--surface-border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.pact-log-list {
+  max-height: 180px;
+  overflow-y: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pact-log-row {
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: rgba(128, 128, 128, 0.08);
+  word-break: break-word;
+}

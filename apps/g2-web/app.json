@@ -1,0 +1,28 @@
+{
+  "package_id": "com.pact.g2hud",
+  "edition": "202601",
+  "version": "0.1.0",
+  "min_app_version": "0.1.0",
+  "min_sdk_version": "0.0.16",
+  "name": "PACT",
+  "description": "Live Bilateral Commitment & Fact-Check HUD for Even Realities G2",
+  "author": "PACT Team",
+  "entrypoint": "index.html",
+  "icon": "assets/icon.png",
+  "supported_languages": ["en"],
+  "permissions": {
+    "microphone": {
+      "desc": "Streams ephemeral 16kHz PCM audio to detect live factual contradictions and verbal commitments."
+    },
+    "network": [
+      {
+        "domain": "localhost",
+        "desc": "Local PACT Relay Server during simulator development."
+      },
+      {
+        "domain": "pact-relay.onrender.com",
+        "desc": "PACT Cloud Relay backend for Deepgram STT, Claude detection, Notion sync, and Telegram locking."
+      }
+    ]
+  }
+}

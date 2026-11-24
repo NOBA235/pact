@@ -1,5 +1,12 @@
-import type { HudPayload, HudStateType, FormattedHudFrame } from '@pact/shared';
+import type {
+  AudioCaptureMode,
+  FormattedHudFrame,
+  HudPayload,
+  HudStateType,
+  UtteranceRecord,
+} from '@pact/shared';
 import type { PactEvenBridge } from '../sdk/evenBridge.js';
+import type { AudioAdapterStats } from '../audio/audioAdapter.js';
 
 export const SAMPLE_HUD_PAYLOADS: Record<HudStateType, HudPayload> = {
   DARK_IDLE: {
@@ -31,12 +38,25 @@ export const SAMPLE_HUD_PAYLOADS: Record<HudStateType, HudPayload> = {
   },
 };
 
+export interface CompanionUiHandlers {
+  onStartSession: (mode: AudioCaptureMode) => Promise<void>;
+  onStopSession: () => Promise<void>;
+  onStreamTestPcm: () => void;
+}
+
 export interface TestBarController {
   appendLog: (entry: string) => void;
   updateMirrorFrame: (frame: FormattedHudFrame) => void;
+  updateRelayStatus: (connected: boolean, deepgramState: string, activeSockets: number) => void;
+  updateAudioStats: (stats: AudioAdapterStats) => void;
+  updateRollingWindow: (windowUtterances: UtteranceRecord[]) => void;
 }
 
-export function mountTestBar(root: HTMLElement, pactBridge: PactEvenBridge): TestBarController {
+export function mountTestBar(
+  root: HTMLElement,
+  pactBridge: PactEvenBridge,
+  handlers: CompanionUiHandlers
+): TestBarController {
   root.innerHTML = `
     <main class="pact-shell">
       <header class="pact-header">
@@ -44,7 +64,11 @@ export function mountTestBar(root: HTMLElement, pactBridge: PactEvenBridge): Tes
           <span class="pact-badge">EVEN REALITIES G2 · SDK 0.0.16</span>
           <h1 class="pact-title">PACT — Bilateral Commitment &amp; Fact-Check HUD</h1>
         </div>
-        <div class="pact-status-pill" id="bridge-status">Bridge: Initializing…</div>
+        <div class="pact-pill-row">
+          <div class="pact-status-pill" id="bridge-status">Bridge: Initializing…</div>
+          <div class="pact-status-pill" id="relay-status">Relay: Connecting…</div>
+          <div class="pact-status-pill" id="dg-status">STT: Idle</div>
+        </div>
       </header>
 
       <section class="pact-lens-card" aria-label="Simulated 576x288 G2 Waveguide Mirror">
@@ -54,6 +78,32 @@ export function mountTestBar(root: HTMLElement, pactBridge: PactEvenBridge): Tes
         </div>
         <div class="pact-lens-screen" id="lens-screen">
           <pre class="pact-lens-pre" id="lens-pre">PACT · ACTIVE\n\n</pre>
+        </div>
+      </section>
+
+      <section class="pact-controls-card" aria-label="Live Audio &amp; STT Session Controls">
+        <div class="pact-logs-header">
+          <h2 class="pact-section-title">Live 16 kHz Ephemeral Audio &amp; Deepgram STT</h2>
+          <span class="pact-audio-stats" id="audio-stats-label">0 frames · 0 B · role: unknown</span>
+        </div>
+        <div class="pact-session-row">
+          <label class="pact-select-label" for="audio-mode-select">Audio Input Source</label>
+          <select id="audio-mode-select" class="pact-select">
+            <option value="g2_bridge">G2 Bridge / Simulator (--aid) 16kHz PCM</option>
+            <option value="browser_mic">Browser AudioContext 16kHz PCM Fallback</option>
+          </select>
+          <button type="button" class="pact-btn pact-btn-ok" id="start-session-btn">Start Session</button>
+          <button type="button" class="pact-btn pact-btn-warn" id="stop-session-btn">Stop Session</button>
+          <button type="button" class="pact-btn" id="test-pcm-btn">Inject 16kHz G2 Audio Burst</button>
+        </div>
+        <div class="pact-window-box">
+          <div class="pact-window-header">
+            <span>Rolling 4-Utterance Context Window (Zero Audio Persistence)</span>
+            <span id="window-count-badge">0 / 4</span>
+          </div>
+          <div class="pact-window-list" id="rolling-window-list">
+            <div class="pact-window-empty">No finalized utterances yet. Start a session and speak into the mic.</div>
+          </div>
         </div>
       </section>
 
@@ -85,7 +135,7 @@ export function mountTestBar(root: HTMLElement, pactBridge: PactEvenBridge): Tes
 
       <section class="pact-logs-card" aria-label="G2 Tap and Bridge Event Logs">
         <div class="pact-logs-header">
-          <h2 class="pact-section-title">Tap &amp; Bridge Event Logs</h2>
+          <h2 class="pact-section-title">Tap, Audio &amp; Bridge Event Logs</h2>
           <button type="button" class="pact-btn-small" id="clear-logs-btn">Clear</button>
         </div>
         <div class="pact-log-list" id="tap-log-list" role="log" aria-live="polite"></div>
@@ -94,6 +144,15 @@ export function mountTestBar(root: HTMLElement, pactBridge: PactEvenBridge): Tes
   `;
 
   const statusEl = root.querySelector<HTMLElement>('#bridge-status')!;
+  const relayStatusEl = root.querySelector<HTMLElement>('#relay-status')!;
+  const dgStatusEl = root.querySelector<HTMLElement>('#dg-status')!;
+  const audioStatsEl = root.querySelector<HTMLElement>('#audio-stats-label')!;
+  const modeSelectEl = root.querySelector<HTMLSelectElement>('#audio-mode-select')!;
+  const startBtn = root.querySelector<HTMLButtonElement>('#start-session-btn')!;
+  const stopBtn = root.querySelector<HTMLButtonElement>('#stop-session-btn')!;
+  const testPcmBtn = root.querySelector<HTMLButtonElement>('#test-pcm-btn')!;
+  const windowCountEl = root.querySelector<HTMLElement>('#window-count-badge')!;
+  const windowListEl = root.querySelector<HTMLElement>('#rolling-window-list')!;
   const stateBadgeEl = root.querySelector<HTMLElement>('#hud-state-badge')!;
   const lensPreEl = root.querySelector<HTMLElement>('#lens-pre')!;
   const lensScreenEl = root.querySelector<HTMLElement>('#lens-screen')!;
@@ -121,6 +180,56 @@ export function mountTestBar(root: HTMLElement, pactBridge: PactEvenBridge): Tes
     });
   };
 
+  const updateRelayStatus = (
+    connected: boolean,
+    deepgramState: string,
+    activeSockets: number
+  ): void => {
+    relayStatusEl.textContent = connected ? 'Relay: Connected' : 'Relay: Disconnected';
+    relayStatusEl.dataset.ready = connected ? 'true' : 'false';
+    dgStatusEl.textContent = `STT: ${deepgramState} (sockets: ${activeSockets})`;
+  };
+
+  const updateAudioStats = (stats: AudioAdapterStats): void => {
+    audioStatsEl.textContent = `${stats.framesSent} frames · ${(stats.bytesSent / 1024).toFixed(1)} KB · role: ${stats.lastSpeakerRole}`;
+  };
+
+  const updateRollingWindow = (windowUtterances: UtteranceRecord[]): void => {
+    windowCountEl.textContent = `${windowUtterances.length} / 4`;
+    if (windowUtterances.length === 0) {
+      windowListEl.innerHTML =
+        '<div class="pact-window-empty">No finalized utterances yet. Start a session and speak into the mic.</div>';
+      return;
+    }
+
+    windowListEl.innerHTML = '';
+    for (const u of windowUtterances) {
+      const item = document.createElement('div');
+      item.className = 'pact-utterance-item';
+      const meta = document.createElement('span');
+      meta.className = 'pact-utterance-meta';
+      meta.textContent = `[${u.speakerLabel} · role=${u.speakerRole} · ${u.latencyMs ?? 0}ms]`;
+      const body = document.createElement('span');
+      body.className = 'pact-utterance-text';
+      body.textContent = ` ${u.text}`;
+      item.append(meta, body);
+      windowListEl.append(item);
+    }
+  };
+
+  startBtn.addEventListener('click', () => {
+    const mode = modeSelectEl.value as AudioCaptureMode;
+    void handlers.onStartSession(mode);
+  });
+
+  stopBtn.addEventListener('click', () => {
+    void handlers.onStopSession();
+  });
+
+  testPcmBtn.addEventListener('click', () => {
+    handlers.onStreamTestPcm();
+  });
+
   root.querySelectorAll<HTMLButtonElement>('[data-hud-state]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const stateKey = btn.dataset.hudState as HudStateType;
@@ -138,5 +247,8 @@ export function mountTestBar(root: HTMLElement, pactBridge: PactEvenBridge): Tes
   return {
     appendLog,
     updateMirrorFrame,
+    updateRelayStatus,
+    updateAudioStats,
+    updateRollingWindow,
   };
 }

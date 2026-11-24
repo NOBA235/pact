@@ -11,7 +11,7 @@
     "dev:relay": "npm --workspace=@pact/relay run dev",
     "build": "npm --workspaces --if-present run build",
     "typecheck": "npm --workspaces --if-present run typecheck",
-    "test": "npm --workspace=@pact/shared run test"
+    "test": "npm --workspaces --if-present run test"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

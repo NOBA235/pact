@@ -5,9 +5,11 @@ import {
   TextContainerUpgrade,
   OsEventTypeList,
   StartUpPageCreateResult,
+  AudioEvent,
+  AudioInputSource,
+  AudioSpeakerRole,
   type EvenAppBridge,
   type EvenHubEvent,
-  type AudioEvent,
 } from '@evenrealities/even_hub_sdk';
 import {
   formatHudFrame,
@@ -28,6 +30,8 @@ export interface EvenBridgeCallbacks {
   onDoubleTap?: (source: string) => void;
   onScrollUp?: (source: string) => void;
   onScrollDown?: (source: string) => void;
+  onLongPress?: (source: string) => void;
+  onLongPressRelease?: (source: string) => void;
   onAudioFrame?: (audioEvent: AudioEvent) => void;
   onFrameRendered?: (frame: FormattedHudFrame) => void;
   onLog?: (message: string) => void;
@@ -187,6 +191,12 @@ export class PactEvenBridge {
     } else if (eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
       this.log(`INPUT: SCROLL_DOWN detected via ${source} (eventType=${eventType})`);
       this.callbacks.onScrollDown?.(source);
+    } else if (eventType === OsEventTypeList.LONG_PRESS_EVENT) {
+      this.log(`INPUT: LONG_PRESS detected via ${source} (eventType=${eventType})`);
+      this.callbacks.onLongPress?.(source);
+    } else if (eventType === OsEventTypeList.LONG_PRESS_RELEASE_EVENT) {
+      this.log(`INPUT: LONG_PRESS_RELEASE detected via ${source} (eventType=${eventType})`);
+      this.callbacks.onLongPressRelease?.(source);
     } else {
       this.log(`EVENT: OsEventTypeList=${OsEventTypeList[eventType] ?? eventType} via ${source}`);
     }
@@ -195,5 +205,46 @@ export class PactEvenBridge {
   public dispose(): void {
     this.unsubscribeEvent?.();
     this.unsubscribeEvent = null;
+  }
+
+  /**
+   * Enables or disables microphone capture on G2 glasses / evenhub-simulator (--aid).
+   */
+  public async setAudioCapture(
+    isOpen: boolean,
+    source: AudioInputSource = AudioInputSource.Glasses
+  ): Promise<boolean> {
+    if (!this.bridge) {
+      this.log(`audioControl(${isOpen}) skipped — bridge not initialized`);
+      return false;
+    }
+    try {
+      const ok = await this.bridge.audioControl(isOpen, source);
+      this.log(`audioControl(isOpen=${isOpen}, source=${source}) -> ${ok}`);
+      return Boolean(ok);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.log(`audioControl(isOpen=${isOpen}) host notice: ${errMsg}`);
+      return false;
+    }
+  }
+
+  /**
+   * Dispatches a verified SDK AudioEvent through the active bridge audio pipeline
+   * (used by simulator automation tests when no physical mic hardware is attached).
+   */
+  public emitAudioEvent(
+    pcm: Uint8Array,
+    speakerRole: AudioSpeakerRole = AudioSpeakerRole.Self,
+    direction: number | null = null,
+    source: AudioInputSource = AudioInputSource.Glasses
+  ): void {
+    const audioEvent = new AudioEvent({
+      audioPcm: pcm,
+      source,
+      direction,
+      speakerRole,
+    });
+    this.handleEvenHubEvent({ audioEvent });
   }
 }

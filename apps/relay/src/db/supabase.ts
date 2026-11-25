@@ -44,3 +44,27 @@ export async function recordSessionStop(sessionId: string): Promise<void> {
     console.warn('[Supabase] Non-fatal session stop warning:', err);
   }
 }
+
+export async function recordDetectedConflict(params: {
+  sessionId: string;
+  docTitle: string;
+  docFact: string;
+  spokenClaim: string;
+  sourceQuote: string;
+  confidence: number;
+}): Promise<void> {
+  const sb = getSupabaseClient();
+  if (!sb) return;
+  try {
+    await sb.from('conflicts').insert({
+      session_id: params.sessionId,
+      doc_title: params.docTitle,
+      doc_fact: params.docFact,
+      spoken_claim: params.spokenClaim,
+      source_quote: params.sourceQuote,
+      confidence: params.confidence,
+    });
+  } catch (err) {
+    console.warn('[Supabase] Non-fatal conflict insert warning:', err);
+  }
+}

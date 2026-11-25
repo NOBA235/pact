@@ -42,6 +42,8 @@ export interface CompanionUiHandlers {
   onStartSession: (mode: AudioCaptureMode) => Promise<void>;
   onStopSession: () => Promise<void>;
   onStreamTestPcm: () => void;
+  onSyncNotionDealDoc?: (pageId: string) => Promise<void>;
+  onSimulateUtterance?: (text: string) => void;
 }
 
 export interface TestBarController {
@@ -78,6 +80,22 @@ export function mountTestBar(
         </div>
         <div class="pact-lens-screen" id="lens-screen">
           <pre class="pact-lens-pre" id="lens-pre">PACT · ACTIVE\n\n</pre>
+        </div>
+      </section>
+
+      <section class="pact-controls-card" aria-label="Notion Context Sync &amp; Contradiction Radar">
+        <div class="pact-logs-header">
+          <h2 class="pact-section-title">Notion Context Indexer &amp; Contradiction Radar</h2>
+          <span class="pact-audio-stats" id="notion-sync-status">Not synced</span>
+        </div>
+        <div class="pact-session-row">
+          <select id="notion-page-select" class="pact-select">
+            <option value="demo-sow-2026">SOW (10% revenue share cap · Delivery: Q1)</option>
+            <option value="demo-term-sheet">TERM SHEET ($12M valuation cap · 20% discount)</option>
+          </select>
+          <button type="button" class="pact-btn pact-btn-ok" id="sync-notion-btn">Sync Deal Doc to pgvector</button>
+          <button type="button" class="pact-btn pact-btn-warn" id="sim-conflict-btn">Speak Contradiction ("15% rev-share...")</button>
+          <button type="button" class="pact-btn" id="sim-banter-btn">Speak Casual Banter</button>
         </div>
       </section>
 
@@ -151,6 +169,11 @@ export function mountTestBar(
   const startBtn = root.querySelector<HTMLButtonElement>('#start-session-btn')!;
   const stopBtn = root.querySelector<HTMLButtonElement>('#stop-session-btn')!;
   const testPcmBtn = root.querySelector<HTMLButtonElement>('#test-pcm-btn')!;
+  const notionSelectEl = root.querySelector<HTMLSelectElement>('#notion-page-select')!;
+  const syncNotionBtn = root.querySelector<HTMLButtonElement>('#sync-notion-btn')!;
+  const simConflictBtn = root.querySelector<HTMLButtonElement>('#sim-conflict-btn')!;
+  const simBanterBtn = root.querySelector<HTMLButtonElement>('#sim-banter-btn')!;
+  const notionStatusEl = root.querySelector<HTMLElement>('#notion-sync-status')!;
   const windowCountEl = root.querySelector<HTMLElement>('#window-count-badge')!;
   const windowListEl = root.querySelector<HTMLElement>('#rolling-window-list')!;
   const stateBadgeEl = root.querySelector<HTMLElement>('#hud-state-badge')!;
@@ -228,6 +251,22 @@ export function mountTestBar(
 
   testPcmBtn.addEventListener('click', () => {
     handlers.onStreamTestPcm();
+  });
+
+  syncNotionBtn.addEventListener('click', () => {
+    const pageId = notionSelectEl.value;
+    notionStatusEl.textContent = 'Syncing…';
+    void handlers.onSyncNotionDealDoc?.(pageId).then(() => {
+      notionStatusEl.textContent = `Synced: ${pageId}`;
+    });
+  });
+
+  simConflictBtn.addEventListener('click', () => {
+    handlers.onSimulateUtterance?.('Since we agreed on a 15% revenue share cap for this deal...');
+  });
+
+  simBanterBtn.addEventListener('click', () => {
+    handlers.onSimulateUtterance?.('Yeah right, we are excited to grab coffee in Dubai after the keynote.');
   });
 
   root.querySelectorAll<HTMLButtonElement>('[data-hud-state]').forEach((btn) => {

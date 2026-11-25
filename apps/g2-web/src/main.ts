@@ -43,6 +43,10 @@ async function bootstrap(): Promise<void> {
   let activeSessionId = `session-${Date.now()}`;
   let dgState = 'idle';
   let dgSockets = 0;
+  let hudFadeTimer: ReturnType<typeof setTimeout> | null = null;
+  const relayHttpBase =
+    (import.meta as unknown as { env?: Record<string, string | undefined> }).env
+      ?.VITE_RELAY_HTTP_URL || 'http://localhost:8787';
 
   const stateOrder: HudStateType[] = [
     'DARK_IDLE',
@@ -106,10 +110,18 @@ async function bootstrap(): Promise<void> {
         clearTimeout(pulseTimer);
         pulseTimer = null;
       }
+      if (hudFadeTimer) {
+        clearTimeout(hudFadeTimer);
+        hudFadeTimer = null;
+      }
       if (frame.state === 'LOCKED_PULSE') {
         pulseTimer = setTimeout(() => {
           void pactBridge.renderHudState(SAMPLE_HUD_PAYLOADS.DARK_IDLE);
         }, 3000);
+      } else if (frame.state === 'CONFLICT' || frame.state === 'PACT_DRAFT') {
+        hudFadeTimer = setTimeout(() => {
+          void pactBridge.renderHudState(SAMPLE_HUD_PAYLOADS.DARK_IDLE);
+        }, 15000);
       }
     },
     onSingleTap: (source) => {
@@ -178,10 +190,44 @@ async function bootstrap(): Promise<void> {
     controller?.appendLog(`Injected 4x100ms 16kHz S16LE G2 AudioEvents (speakerRole=${role})`);
   };
 
+  const handleSyncNotionDealDoc = async (pageId: string = 'demo-sow-2026'): Promise<void> => {
+    try {
+      const res = await fetch(`${relayHttpBase}/api/sessions/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: activeSessionId,
+          pageIds: [pageId],
+        }),
+      });
+      const data = (await res.json()) as {
+        ok: boolean;
+        pagesSynced?: number;
+        chunksStored?: number;
+        docTitles?: string[];
+        error?: string;
+      };
+      if (data.ok) {
+        controller?.appendLog(
+          `Synced Notion doc (${data.docTitles?.join(', ')}): ${data.chunksStored} chunks embedded in pgvector`
+        );
+      } else {
+        controller?.appendLog(`Notion sync error: ${data.error}`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      controller?.appendLog(`Notion sync request failed: ${msg}`);
+    }
+  };
+
   controller = mountTestBar(appRoot, pactBridge, {
     onStartSession: handleStartSession,
     onStopSession: handleStopSession,
     onStreamTestPcm: () => handleInjectPcmBurst('self'),
+    onSyncNotionDealDoc: handleSyncNotionDealDoc,
+    onSimulateUtterance: (text) => {
+      relayClient.sendSyntheticSpeech(text, 'other');
+    },
   });
 
   window.__pactBridge = pactBridge;

@@ -3,13 +3,17 @@ import { AudioSpeakerRole } from '@evenrealities/even_hub_sdk';
 import { PactEvenBridge } from './sdk/evenBridge.js';
 import { PactRelayClient } from './ws/relayClient.js';
 import { PactAudioAdapter, BYTES_PER_FRAME } from './audio/audioAdapter.js';
-import { mountTestBar, SAMPLE_HUD_PAYLOADS } from './ui/testBar.js';
+import {
+  mountTestBar,
+  SAMPLE_HUD_PAYLOADS,
+  type NotionPageOption,
+} from './ui/testBar.js';
 import type { AudioCaptureMode, HudStateType } from '@pact/shared';
 
 declare global {
   interface Window {
     __pactSetHudState?: (state: HudStateType) => Promise<void>;
-    __pactStartSession?: (mode?: AudioCaptureMode) => Promise<void>;
+    __pactStartSession?: (mode?: AudioCaptureMode, telegramChatId?: string) => Promise<void>;
     __pactStopSession?: () => Promise<void>;
     __pactInjectPcmBurst?: (role?: 'self' | 'other') => void;
     __pactBridge?: PactEvenBridge;
@@ -40,13 +44,10 @@ async function bootstrap(): Promise<void> {
 
   let controller: ReturnType<typeof mountTestBar> | null = null;
   let pulseTimer: ReturnType<typeof setTimeout> | null = null;
+  let hudFadeTimer: ReturnType<typeof setTimeout> | null = null;
   let activeSessionId = `session-${Date.now()}`;
   let dgState = 'idle';
   let dgSockets = 0;
-  let hudFadeTimer: ReturnType<typeof setTimeout> | null = null;
-  const relayHttpBase =
-    (import.meta as unknown as { env?: Record<string, string | undefined> }).env
-      ?.VITE_RELAY_HTTP_URL || 'http://localhost:8787';
 
   const stateOrder: HudStateType[] = [
     'DARK_IDLE',
@@ -58,8 +59,15 @@ async function bootstrap(): Promise<void> {
 
   const relayClient = new PactRelayClient({
     onLog: (msg) => controller?.appendLog(msg),
-    onConnectionChange: (connected) => {
-      controller?.updateRelayStatus(connected, dgState, dgSockets);
+    onConnectionChange: (connected, _url, reconnectingInMs) => {
+      controller?.updateRelayStatus(connected, dgState, dgSockets, reconnectingInMs);
+      if (connected) {
+        void fetchNotionPages().then((pages) => {
+          if (pages.length > 0) {
+            controller?.setNotionPageOptions(pages);
+          }
+        });
+      }
     },
     onMessage: (msg) => {
       switch (msg.type) {
@@ -88,6 +96,7 @@ async function bootstrap(): Promise<void> {
           break;
         }
         case 'pact.updated': {
+          controller?.updateSessionPacts(msg.sessionPacts);
           controller?.appendLog(
             `Pact [${msg.pact.status.toUpperCase()}]: "${msg.pact.title}" (${msg.pact.owner} · ${msg.pact.dueText})${msg.pact.confirmedBy ? ` — ${msg.pact.confirmedBy}` : ''}`
           );
@@ -101,6 +110,7 @@ async function bootstrap(): Promise<void> {
     },
   });
 
+  const relayHttpBase = relayClient.getHttpBaseUrl();
   let audioAdapter: PactAudioAdapter | null = null;
 
   const pactBridge = new PactEvenBridge({
@@ -138,7 +148,7 @@ async function bootstrap(): Promise<void> {
       if (!sentToRelay && current === 'PACT_DRAFT') {
         void pactBridge.renderHudState({
           state: 'SENT_PENDING',
-          title: currentFrame.lines[1] || SAMPLE_HUD_PAYLOADS.SENT_PENDING.state,
+          title: currentFrame.lines[1] || 'Pending Pact',
         });
       }
     },
@@ -180,9 +190,71 @@ async function bootstrap(): Promise<void> {
     onStatsChange: (stats) => controller?.updateAudioStats(stats),
   });
 
-  const handleStartSession = async (mode: AudioCaptureMode = 'g2_bridge'): Promise<void> => {
+  const fetchNotionPages = async (): Promise<NotionPageOption[]> => {
+    try {
+      const res = await fetch(`${relayHttpBase}/api/notion/pages`);
+      if (!res.ok) return [];
+      const data = (await res.json()) as {
+        ok: boolean;
+        pages?: Array<{ id: string; title: string; source?: string }>;
+      };
+      return data.pages ?? [];
+    } catch {
+      return [];
+    }
+  };
+
+  const handleSyncNotionDealDocs = async (
+    pageIds: string[]
+  ): Promise<{ pagesSynced: number; chunksStored: number }> => {
+    const res = await fetch(`${relayHttpBase}/api/sessions/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: activeSessionId,
+        pageIds,
+      }),
+    });
+    const data = (await res.json()) as {
+      ok: boolean;
+      pagesSynced?: number;
+      chunksStored?: number;
+      docTitles?: string[];
+      error?: string;
+    };
+    if (!data.ok) {
+      throw new Error(data.error || 'Failed to sync Notion pages');
+    }
+    const pagesSynced = data.pagesSynced ?? pageIds.length;
+    const chunksStored = data.chunksStored ?? 0;
+    controller?.appendLog(
+      `Synced Notion docs (${data.docTitles?.join(', ')}): ${chunksStored} chunks embedded in pgvector`
+    );
+    return { pagesSynced, chunksStored };
+  };
+
+  const handlePingTelegramChat = async (
+    chatId: string
+  ): Promise<{ ok: boolean; simulated?: boolean }> => {
+    const res = await fetch(`${relayHttpBase}/api/telegram/ping`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chatId }),
+    });
+    const data = (await res.json()) as { ok: boolean; simulated?: boolean; error?: string };
+    if (!data.ok) {
+      throw new Error(data.error || 'Telegram ping failed');
+    }
+    controller?.appendLog(`Telegram chat ${chatId} verified via /api/telegram/ping`);
+    return data;
+  };
+
+  const handleStartSession = async (
+    mode: AudioCaptureMode = 'g2_bridge',
+    telegramChatId?: string
+  ): Promise<void> => {
     activeSessionId = `session-${Date.now()}`;
-    relayClient.startSession(mode, activeSessionId);
+    relayClient.startSession(mode, activeSessionId, telegramChatId);
     await audioAdapter!.start(mode);
   };
 
@@ -200,43 +272,17 @@ async function bootstrap(): Promise<void> {
     controller?.appendLog(`Injected 4x100ms 16kHz S16LE G2 AudioEvents (speakerRole=${role})`);
   };
 
-  const handleSyncNotionDealDoc = async (pageId: string = 'demo-sow-2026'): Promise<void> => {
-    try {
-      const res = await fetch(`${relayHttpBase}/api/sessions/sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: activeSessionId,
-          pageIds: [pageId],
-        }),
-      });
-      const data = (await res.json()) as {
-        ok: boolean;
-        pagesSynced?: number;
-        chunksStored?: number;
-        docTitles?: string[];
-        error?: string;
-      };
-      if (data.ok) {
-        controller?.appendLog(
-          `Synced Notion doc (${data.docTitles?.join(', ')}): ${data.chunksStored} chunks embedded in pgvector`
-        );
-      } else {
-        controller?.appendLog(`Notion sync error: ${data.error}`);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      controller?.appendLog(`Notion sync request failed: ${msg}`);
-    }
-  };
-
   controller = mountTestBar(appRoot, pactBridge, {
     onStartSession: handleStartSession,
     onStopSession: handleStopSession,
     onStreamTestPcm: () => handleInjectPcmBurst('self'),
-    onSyncNotionDealDoc: handleSyncNotionDealDoc,
+    onSyncNotionDealDocs: handleSyncNotionDealDocs,
+    onRefreshNotionPages: fetchNotionPages,
+    onPingTelegramChat: handlePingTelegramChat,
     onSimulateUtterance: (text) => {
-      const role = /\b(?:i\s+will|i'll|we\s+will|we'll|i\s+commit)\b/i.test(text) ? 'self' : 'other';
+      const role = /\b(?:i\s+will|i'll|we\s+will|we'll|i\s+commit)\b/i.test(text)
+        ? 'self'
+        : 'other';
       relayClient.sendSyntheticSpeech(text, role);
     },
   });

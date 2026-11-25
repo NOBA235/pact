@@ -7,7 +7,7 @@ import type {
 } from '@pact/shared';
 
 export interface RelayClientCallbacks {
-  onConnectionChange?: (connected: boolean, url: string) => void;
+  onConnectionChange?: (connected: boolean, url: string, reconnectingInMs?: number) => void;
   onMessage?: (msg: RelayToClientMessage) => void;
   onLog?: (entry: string) => void;
 }
@@ -15,6 +15,7 @@ export interface RelayClientCallbacks {
 export class PactRelayClient {
   private ws: WebSocket | null = null;
   private readonly url: string;
+  private readonly httpBaseUrl: string;
   private readonly callbacks: RelayClientCallbacks;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
@@ -22,9 +23,14 @@ export class PactRelayClient {
   private chunkSeq = 0;
 
   constructor(callbacks: RelayClientCallbacks = {}, customUrl?: string) {
-    const envUrl = (import.meta as unknown as { env?: Record<string, string | undefined> }).env
-      ?.VITE_RELAY_WS_URL;
-    this.url = customUrl || envUrl || 'ws://localhost:8787/ws';
+    const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
+    this.url = customUrl || env?.VITE_RELAY_WS_URL || 'ws://localhost:8787/ws';
+    this.httpBaseUrl =
+      env?.VITE_RELAY_HTTP_URL ||
+      this.url
+        .replace(/^wss:/, 'https:')
+        .replace(/^ws:/, 'http:')
+        .replace(/\/ws\/?$/, '');
     this.callbacks = callbacks;
   }
 
@@ -36,8 +42,22 @@ export class PactRelayClient {
     return this.url;
   }
 
+  public getHttpBaseUrl(): string {
+    return this.httpBaseUrl;
+  }
+
   public isConnected(): boolean {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+  }
+
+  public async checkHealth(): Promise<Record<string, unknown> | null> {
+    try {
+      const res = await fetch(`${this.httpBaseUrl}/health`);
+      if (!res.ok) return null;
+      return (await res.json()) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
   }
 
   public connect(): void {
@@ -71,10 +91,12 @@ export class PactRelayClient {
       });
 
       this.ws.addEventListener('close', () => {
-        this.callbacks.onConnectionChange?.(false, this.url);
         this.ws = null;
         if (this.shouldReconnect) {
-          this.scheduleReconnect();
+          const delayMs = this.scheduleReconnect();
+          this.callbacks.onConnectionChange?.(false, this.url, delayMs);
+        } else {
+          this.callbacks.onConnectionChange?.(false, this.url);
         }
       });
 
@@ -84,18 +106,22 @@ export class PactRelayClient {
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       this.log(`WebSocket connection error: ${errMsg}`);
-      this.scheduleReconnect();
+      const delayMs = this.scheduleReconnect();
+      this.callbacks.onConnectionChange?.(false, this.url, delayMs);
     }
   }
 
-  private scheduleReconnect(): void {
-    if (this.reconnectTimer || !this.shouldReconnect) return;
-    const delayMs = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), 10000);
+  private scheduleReconnect(): number {
+    if (this.reconnectTimer || !this.shouldReconnect) return 0;
+    const baseDelay = Math.min(1000 * Math.pow(1.6, this.reconnectAttempts), 12000);
+    const jitter = Math.floor(Math.random() * 250);
+    const delayMs = Math.round(baseDelay + jitter);
     this.reconnectAttempts += 1;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
     }, delayMs);
+    return delayMs;
   }
 
   public disconnect(): void {
@@ -119,12 +145,17 @@ export class PactRelayClient {
     return true;
   }
 
-  public startSession(audioSource: AudioCaptureMode, sessionId?: string): boolean {
+  public startSession(
+    audioSource: AudioCaptureMode,
+    sessionId?: string,
+    telegramChatId?: string
+  ): boolean {
     this.chunkSeq = 0;
     return this.sendJson({
       type: 'session.start',
       sessionId,
       audioSource,
+      telegramChatId,
     });
   }
 

@@ -10,10 +10,12 @@
     "dev:web": "npm --workspace=@pact/g2-web run dev",
     "dev:relay": "npm --workspace=@pact/relay run dev",
     "build": "npm --workspaces --if-present run build",
+    "pack:ehpk": "npm --workspace=@pact/g2-web run build && npx evenhub pack apps/g2-web/app.json apps/g2-web/dist -o apps/g2-web/pact.ehpk --sdk-ver 0.0.16",
     "typecheck": "npm --workspaces --if-present run typecheck",
     "test": "npm --workspaces --if-present run test"
   },
   "devDependencies": {
+    "@evenrealities/evenhub-cli": "^0.2.0",
     "@types/node": "^22.10.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"

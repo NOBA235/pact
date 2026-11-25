@@ -1,28 +1,34 @@
 {
   "package_id": "com.pact.g2hud",
   "edition": "202601",
-  "version": "0.1.0",
-  "min_app_version": "0.1.0",
-  "min_sdk_version": "0.0.16",
   "name": "PACT",
-  "description": "Live Bilateral Commitment & Fact-Check HUD for Even Realities G2",
-  "author": "PACT Team",
+  "version": "0.1.0",
+  "min_app_version": "2.2.10",
+  "min_sdk_version": "0.0.16",
   "entrypoint": "index.html",
-  "icon": "assets/icon.png",
-  "supported_languages": ["en"],
-  "permissions": {
-    "microphone": {
-      "desc": "Streams ephemeral 16kHz PCM audio to detect live factual contradictions and verbal commitments."
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "Connects to the PACT Cloud Relay over HTTPS and WSS for ephemeral 16kHz speech-to-text, Notion contradiction detection, and Telegram commitment locking.",
+      "whitelist": [
+        "http://localhost:8787",
+        "ws://localhost:8787",
+        "https://pact-relay.onrender.com",
+        "wss://pact-relay.onrender.com",
+        "https://pact-relay.fly.dev",
+        "wss://pact-relay.fly.dev"
+      ]
     },
-    "network": [
-      {
-        "domain": "localhost",
-        "desc": "Local PACT Relay Server during simulator development."
-      },
-      {
-        "domain": "pact-relay.onrender.com",
-        "desc": "PACT Cloud Relay backend for Deepgram STT, Claude detection, Notion sync, and Telegram locking."
-      }
-    ]
-  }
+    {
+      "name": "g2-microphone",
+      "desc": "Streams ephemeral 16kHz PCM audio from G2 glasses during active sessions to detect factual contradictions and verbal commitments."
+    },
+    {
+      "name": "phone-microphone",
+      "desc": "Provides fallback 16kHz PCM audio capture when running without G2 glasses microphone input."
+    }
+  ],
+  "supported_languages": [
+    "en"
+  ]
 }

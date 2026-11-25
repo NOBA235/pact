@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: pact-relay
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: npm install && npm run typecheck
+    startCommand: npm --workspace=@pact/relay run start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8787
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: CLAUDE_MODEL
+        value: anthropic/claude-3-5-haiku-latest
+      - key: EMBEDDING_MODEL
+        value: openai/text-embedding-3-small
+      - key: NOTION_API_KEY
+        sync: false
+      - key: NOTION_PACT_LEDGER_DB_ID
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      - key: TELEGRAM_DEFAULT_CHAT_ID
+        sync: false

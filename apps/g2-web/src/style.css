@@ -35,7 +35,19 @@
   }
 
   color-scheme: light dark;
-  accent-color: var(--g2-green);
+  --brand-accent-light: #0d8a47;
+  --brand-accent-dark: #39ff88;
+  --brand-accent: var(--brand-accent-dark);
+
+  @media (prefers-color-scheme: light) {
+    --brand-accent: var(--brand-accent-light);
+  }
+
+  @supports (color: light-dark(white, black)) {
+    --brand-accent: light-dark(var(--brand-accent-light), var(--brand-accent-dark));
+  }
+
+  accent-color: var(--brand-accent);
 }
 
 *,
@@ -172,6 +184,193 @@ body {
 .pact-utterance-meta {
   color: #2ecc71;
   font-weight: 700;
+}
+
+.pact-setup-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pact-doc-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.pact-step-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.pact-inline-note {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.pact-input {
+  flex: 1;
+  min-width: 160px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.pact-consent-box {
+  padding: 9px 11px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  background: rgba(57, 255, 136, 0.06);
+  border: 1px solid var(--surface-border);
+}
+
+.pact-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.pact-checkbox {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--brand-accent);
+}
+
+.pact-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@supports not (accent-color: var(--brand-accent)) {
+  input[type="checkbox"].visually-hidden {
+    position: absolute !important;
+    clip-path: inset(50%) !important;
+    overflow: hidden !important;
+    width: 1px !important;
+    height: 1px !important;
+    margin: -1px !important;
+    padding: 0 !important;
+    border: 0 !important;
+    white-space: nowrap !important;
+  }
+
+  .pact-checkbox-label {
+    position: relative;
+    padding-left: 1.75rem;
+  }
+
+  input[type="checkbox"].visually-hidden + span::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 1.1rem;
+    height: 1.1rem;
+    border: 2px solid var(--surface-border);
+    background: var(--surface-bg);
+    border-radius: 4px;
+    box-sizing: border-box;
+  }
+
+  input[type="checkbox"].visually-hidden:focus-visible + span::before {
+    outline: 2px solid var(--brand-accent);
+    outline-offset: 2px;
+  }
+
+  input[type="checkbox"].visually-hidden:checked + span::before {
+    background-color: var(--brand-accent);
+    border-color: var(--brand-accent);
+  }
+
+  input[type="checkbox"].visually-hidden:checked + span::after {
+    content: "✓";
+    position: absolute;
+    left: 0.2rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #05120a;
+    font-weight: 700;
+    font-size: 0.85rem;
+  }
+}
+
+.pact-pacts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pact-ledger-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-bg);
+  font-size: 12px;
+}
+
+.pact-ledger-badge {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(140, 163, 152, 0.18);
+}
+
+.pact-ledger-item[data-status="locked"] .pact-ledger-badge {
+  background: rgba(57, 255, 136, 0.2);
+  color: var(--brand-accent);
+}
+
+.pact-ledger-item[data-status="pending"] .pact-ledger-badge {
+  background: rgba(241, 196, 15, 0.2);
+  color: #e6b800;
+}
+
+.pact-ledger-item[data-status="declined"] .pact-ledger-badge {
+  background: rgba(231, 76, 60, 0.2);
+  color: #e74c3c;
+}
+
+.pact-ledger-main {
+  font-weight: 600;
+}
+
+.pact-diagnostics {
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.pact-diagnostics-summary {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.pact-diagnostics-body {
+  margin-top: 10px;
 }
 
 .pact-lens-card {

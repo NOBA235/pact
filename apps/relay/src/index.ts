@@ -5,8 +5,6 @@ import { WebSocketServer, WebSocket } from 'ws';
 import {
   formatHudFrame,
   type ClientToRelayMessage,
-  type HudPayload,
-  type HudStateType,
   type RelayToClientMessage,
   type SpeakerRoleTag,
   type UtteranceRecord,
@@ -20,7 +18,8 @@ import { RollingUtteranceWindow, resolveSpeakerLabel } from './stt/contextWindow
 import {
   recordSessionStart,
   recordSessionStop,
-  recordDetectedConflict,
+  listAllPacts,
+  listPactsForSession,
 } from './db/supabase.js';
 import {
   listNotionPages,
@@ -29,25 +28,35 @@ import {
   getSyncedChunksForSession,
   type CustomSyncDocument,
 } from './notion/indexer.js';
+import { getVirtualLedgerRows } from './notion/ledger.js';
 import {
   passesPreFilterGate,
   hasVerifiableTerms,
-  detectContradiction,
+  hasCommitmentCue,
+  analyzeUtterance,
 } from './ai/detector.js';
+import { SessionHudStateMachine } from './hud/stateMachine.js';
+import {
+  getVirtualTelegramMessages,
+  sendTelegramTestPing,
+} from './telegram/bot.js';
+import {
+  processTelegramWebhook,
+  type TelegramCallbackQueryPayload,
+} from './telegram/webhook.js';
 
-export const HUD_AUTO_FADE_MS = 15000;
 const GLOBAL_SYNC_SESSION_ID = 'global-deal-context';
 
 interface ActiveClientSession {
   sessionId: string;
+  telegramChatId?: string;
   ws: WebSocket;
   window: RollingUtteranceWindow;
   deepgram: DeepgramStreamSession | null;
+  hudMachine: SessionHudStateMachine;
   lastSpeakerRole: SpeakerRoleTag;
   lastChunkSentAt: number;
   framesReceived: number;
-  currentHudState: HudStateType;
-  autoFadeTimer: ReturnType<typeof setTimeout> | null;
 }
 
 const activeSessions = new Map<WebSocket, ActiveClientSession>();
@@ -72,6 +81,7 @@ export function getRelayHealth() {
     recentFinalUtterancesCount: recentFinalUtterances.length,
     recentFinalUtterances: recentFinalUtterances.slice(-10),
     recentConflicts: recentConflicts.slice(-10),
+    pactsCount: listAllPacts().length,
     sampleIdleFrame: frame.text,
   };
 }
@@ -82,48 +92,11 @@ function sendToClient(ws: WebSocket, message: RelayToClientMessage): void {
   }
 }
 
-function clearAutoFadeTimer(session: ActiveClientSession): void {
-  if (session.autoFadeTimer) {
-    clearTimeout(session.autoFadeTimer);
-    session.autoFadeTimer = null;
-  }
-}
-
-function pushHudFrameToSession(
-  session: ActiveClientSession,
-  payload: HudPayload,
-  autoFadeMs: number = 0
-): void {
-  clearAutoFadeTimer(session);
-  const frame = formatHudFrame(payload);
-  session.currentHudState = frame.state;
-
-  sendToClient(session.ws, {
-    type: 'hud.frame',
-    payload,
-    frame,
-  });
-
-  if (autoFadeMs > 0 && frame.state !== 'DARK_IDLE') {
-    session.autoFadeTimer = setTimeout(() => {
-      session.autoFadeTimer = null;
-      const idlePayload: HudPayload = { state: 'DARK_IDLE' };
-      const idleFrame = formatHudFrame(idlePayload);
-      session.currentHudState = 'DARK_IDLE';
-      sendToClient(session.ws, {
-        type: 'hud.frame',
-        payload: idlePayload,
-        frame: idleFrame,
-      });
-    }, autoFadeMs);
-  }
-}
-
 function teardownClientSession(ws: WebSocket, reason: string): void {
   const session = activeSessions.get(ws);
   if (!session) return;
 
-  clearAutoFadeTimer(session);
+  session.hudMachine.dispose();
   if (session.deepgram) {
     session.deepgram.close();
     session.deepgram = null;
@@ -157,7 +130,7 @@ function readJsonBody(req: http.IncomingMessage): Promise<Record<string, any>> {
   });
 }
 
-async function evaluateUtteranceForContradiction(
+async function evaluateUtteranceIntelligence(
   session: ActiveClientSession,
   utterance: UtteranceRecord,
   rollingWindow: UtteranceRecord[]
@@ -165,59 +138,58 @@ async function evaluateUtteranceForContradiction(
   const startTime = Date.now();
   const text = utterance.text.trim();
 
-  if (!passesPreFilterGate(text) || !hasVerifiableTerms(text)) {
+  if (!passesPreFilterGate(text)) {
     return;
   }
 
-  // Search session-specific chunks first, falling back to global synced deal chunks
-  let topChunks = await queryTopDocChunks(session.sessionId, text, 3);
-  if (topChunks.length === 0) {
-    topChunks = await queryTopDocChunks(GLOBAL_SYNC_SESSION_ID, text, 3);
-  }
-  if (topChunks.length === 0) {
+  const needsDocQuery = hasVerifiableTerms(text);
+  const needsPactCheck = hasCommitmentCue(text);
+  if (!needsDocQuery && !needsPactCheck) {
     return;
+  }
+
+  let topChunks = needsDocQuery
+    ? await queryTopDocChunks(session.sessionId, text, 3)
+    : [];
+  if (needsDocQuery && topChunks.length === 0) {
+    topChunks = await queryTopDocChunks(GLOBAL_SYNC_SESSION_ID, text, 3);
   }
 
   const recentUtterances = rollingWindow.filter((u) => u.id !== utterance.id).slice(-3);
-  const result = await detectContradiction({
+  const detection = await analyzeUtterance({
     utterance,
     recentUtterances,
     topChunks,
   });
 
-  if (result.type === 'conflict' && result.confidence >= 0.85) {
-    const totalLatencyMs = Date.now() - (utterance.timestamp - (utterance.latencyMs ?? 0));
-    const detectorLatencyMs = Date.now() - startTime;
-    const conflictPayload: HudPayload = {
-      state: 'CONFLICT',
-      docTitle: result.docTitle,
-      docFact: result.docFact,
-      spokenClaim: result.spokenClaim,
-    };
+  if (detection.type === 'none') {
+    return;
+  }
 
-    pushHudFrameToSession(session, conflictPayload, HUD_AUTO_FADE_MS);
+  const triggered = await session.hudMachine.handleDetection(detection, utterance.speakerRole);
+  if (!triggered) {
+    return;
+  }
 
+  const totalLatencyMs = Date.now() - (utterance.timestamp - (utterance.latencyMs ?? 0));
+  const detectorLatencyMs = Date.now() - startTime;
+
+  if (detection.type === 'conflict') {
     recentConflicts.push({
       sessionId: session.sessionId,
-      docTitle: result.docTitle,
-      docFact: result.docFact,
-      spokenClaim: result.spokenClaim,
-      confidence: result.confidence,
+      docTitle: detection.docTitle,
+      docFact: detection.docFact,
+      spokenClaim: detection.spokenClaim,
+      confidence: detection.confidence,
       latencyMs: totalLatencyMs,
       timestamp: Date.now(),
     });
-
-    void recordDetectedConflict({
-      sessionId: session.sessionId,
-      docTitle: result.docTitle,
-      docFact: result.docFact,
-      spokenClaim: result.spokenClaim,
-      sourceQuote: text,
-      confidence: result.confidence,
-    });
-
     console.log(
-      `[CONFLICT RADAR] ! CONFLICT · ${result.docTitle} | Doc: ${result.docFact} | Said: ${result.spokenClaim} (conf=${result.confidence}, radar=${detectorLatencyMs}ms, total=${totalLatencyMs}ms)`
+      `[CONFLICT RADAR] ! CONFLICT · ${detection.docTitle} | Doc: ${detection.docFact} | Said: ${detection.spokenClaim} (conf=${detection.confidence}, radar=${detectorLatencyMs}ms, total=${totalLatencyMs}ms)`
+    );
+  } else if (detection.type === 'pact') {
+    console.log(
+      `[PACT DRAFT] PACT? [TAP: LOCK] | "${detection.title}" | ${detection.owner} · ${detection.dueText} (conf=${detection.confidence}, ai=${detectorLatencyMs}ms, total=${totalLatencyMs}ms)`
     );
   }
 }
@@ -226,7 +198,10 @@ export function createRelayServer(port: number = Number(process.env.PORT || 8787
   const server = http.createServer(async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Content-Type, X-Telegram-Bot-Api-Secret-Token'
+    );
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
@@ -234,7 +209,8 @@ export function createRelayServer(port: number = Number(process.env.PORT || 8787
       return;
     }
 
-    const urlPath = (req.url || '/').split('?')[0];
+    const parsedUrl = new URL(req.url || '/', `http://localhost:${port}`);
+    const urlPath = parsedUrl.pathname;
 
     if (req.method === 'GET' && (urlPath === '/health' || urlPath === '/api/health')) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -275,7 +251,6 @@ export function createRelayServer(port: number = Number(process.env.PORT || 8787
           customDocs,
         });
 
-        // Also mirror into GLOBAL_SYNC_SESSION_ID so active and subsequent sessions on this relay can query immediately
         if (sessionId !== GLOBAL_SYNC_SESSION_ID) {
           await syncSessionDocuments({
             sessionId: GLOBAL_SYNC_SESSION_ID,
@@ -298,6 +273,50 @@ export function createRelayServer(port: number = Number(process.env.PORT || 8787
       return;
     }
 
+    if (req.method === 'GET' && urlPath === '/api/pacts') {
+      const sessionId = parsedUrl.searchParams.get('sessionId')?.trim();
+      const pacts = sessionId ? listPactsForSession(sessionId) : listAllPacts();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          ok: true,
+          pacts,
+          notionLedger: getVirtualLedgerRows(),
+          telegramCards: getVirtualTelegramMessages(),
+        })
+      );
+      return;
+    }
+
+    if (req.method === 'POST' && urlPath === '/api/telegram/ping') {
+      try {
+        const body = await readJsonBody(req);
+        const chatId = String(body.chatId || process.env.TELEGRAM_DEFAULT_CHAT_ID || '').trim();
+        const pingResult = await sendTelegramTestPing(chatId);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ...pingResult, chatId }));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: message }));
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && urlPath === '/webhooks/telegram') {
+      try {
+        const body = (await readJsonBody(req)) as TelegramCallbackQueryPayload;
+        const result = await processTelegramWebhook(req.headers, body);
+        res.writeHead(result.statusCode, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result.body));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: message }));
+      }
+      return;
+    }
+
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not Found' }));
   });
@@ -306,16 +325,34 @@ export function createRelayServer(port: number = Number(process.env.PORT || 8787
 
   wss.on('connection', (ws: WebSocket) => {
     const initialSessionId = randomUUID();
+
+    const hudMachine = new SessionHudStateMachine({
+      sessionId: initialSessionId,
+      onHudFrame: (payload, frame) => {
+        sendToClient(ws, {
+          type: 'hud.frame',
+          payload,
+          frame,
+        });
+      },
+      onPactUpdated: (pact, sessionPacts) => {
+        sendToClient(ws, {
+          type: 'pact.updated',
+          pact,
+          sessionPacts,
+        });
+      },
+    });
+
     const clientState: ActiveClientSession = {
       sessionId: initialSessionId,
       ws,
       window: new RollingUtteranceWindow(4),
       deepgram: null,
+      hudMachine,
       lastSpeakerRole: 'unknown',
       lastChunkSentAt: Date.now(),
       framesReceived: 0,
-      currentHudState: 'DARK_IDLE',
-      autoFadeTimer: null,
     };
     activeSessions.set(ws, clientState);
 
@@ -389,7 +426,7 @@ export function createRelayServer(port: number = Number(process.env.PORT || 8787
     });
 
     if (utterance.isFinal) {
-      void evaluateUtteranceForContradiction(session, utterance, rollingWindow);
+      void evaluateUtteranceIntelligence(session, utterance, rollingWindow);
     }
   }
 
@@ -435,9 +472,13 @@ export function createRelayServer(port: number = Number(process.env.PORT || 8787
         if (msg.sessionId) {
           session.sessionId = msg.sessionId;
         }
+        if (msg.telegramChatId !== undefined) {
+          session.telegramChatId = msg.telegramChatId;
+        }
+        session.hudMachine.setSessionContext(session.sessionId, session.telegramChatId);
         session.window.clear();
         session.framesReceived = 0;
-        void recordSessionStart(session.sessionId);
+        void recordSessionStart(session.sessionId, 'PACT Live Session', session.telegramChatId);
         startDeepgramForSession(session);
         console.log(
           `[pact-relay] Session ${session.sessionId} started (audioSource=${msg.audioSource}) | activeDeepgramSockets=${getActiveDeepgramSocketCount()}`
@@ -446,7 +487,6 @@ export function createRelayServer(port: number = Number(process.env.PORT || 8787
       }
 
       case 'session.stop': {
-        clearAutoFadeTimer(session);
         if (session.deepgram) {
           session.deepgram.close();
           session.deepgram = null;
@@ -484,7 +524,7 @@ export function createRelayServer(port: number = Number(process.env.PORT || 8787
 
       case 'stt.simulate': {
         const now = Date.now();
-        const role = msg.speakerRole ?? 'other';
+        const role = msg.speakerRole ?? 'self';
         const utterance: UtteranceRecord = {
           id: randomUUID(),
           sessionId: session.sessionId,
@@ -501,16 +541,12 @@ export function createRelayServer(port: number = Number(process.env.PORT || 8787
 
       case 'hud.tap': {
         console.log(
-          `[HUD Input] session=${session.sessionId} tap=${msg.tapType} state=${msg.currentState}`
+          `[HUD Input] session=${session.sessionId} tap=${msg.tapType} clientState=${msg.currentState} relayState=${session.hudMachine.getState()}`
         );
-        if (
-          msg.tapType === 'double_tap' &&
-          (session.currentHudState === 'CONFLICT' ||
-            session.currentHudState === 'PACT_DRAFT' ||
-            msg.currentState === 'CONFLICT' ||
-            msg.currentState === 'PACT_DRAFT')
-        ) {
-          pushHudFrameToSession(session, { state: 'DARK_IDLE' }, 0);
+        if (msg.tapType === 'single_tap') {
+          void session.hudMachine.handleSingleTap();
+        } else if (msg.tapType === 'double_tap') {
+          void session.hudMachine.handleDoubleTap();
         }
         break;
       }

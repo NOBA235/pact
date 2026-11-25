@@ -10,6 +10,7 @@ import {
   passesPreFilterGate,
   hasVerifiableTerms,
   detectContradiction,
+  analyzeUtterance,
 } from './detector.js';
 
 describe('Notion Context Indexer & Contradiction Radar', () => {
@@ -120,5 +121,63 @@ describe('Notion Context Indexer & Contradiction Radar', () => {
       'Doc: 10% rev-share',
       'Said: 15% rev-share',
     ]);
+  });
+
+  it('extracts verbal commitments (pact) using G2 speakerRole (self -> Me, other -> Counterparty) while rejecting questions', async () => {
+    const selfPact = await analyzeUtterance({
+      utterance: {
+        id: 'u-pact-self',
+        sessionId: 'sess-pact',
+        text: 'I will send the revised cap table PDF by Friday 5pm.',
+        speakerLabel: 'Self (G2 · S0)',
+        speakerRole: 'self',
+        isFinal: true,
+        timestamp: Date.now(),
+      },
+      recentUtterances: [],
+      topChunks: [],
+    });
+
+    assert.equal(selfPact.type, 'pact');
+    if (selfPact.type === 'pact') {
+      assert.ok(selfPact.confidence >= 0.82);
+      assert.equal(selfPact.owner, 'Me');
+      assert.ok(selfPact.title.length <= 26);
+      assert.ok(selfPact.dueText.length <= 12);
+    }
+
+    const otherPact = await analyzeUtterance({
+      utterance: {
+        id: 'u-pact-other',
+        sessionId: 'sess-pact',
+        text: 'We will deliver the security audit report by Tuesday.',
+        speakerLabel: 'Counterparty (G2 · S1)',
+        speakerRole: 'other',
+        isFinal: true,
+        timestamp: Date.now(),
+      },
+      recentUtterances: [],
+      topChunks: [],
+    });
+
+    assert.equal(otherPact.type, 'pact');
+    if (otherPact.type === 'pact') {
+      assert.equal(otherPact.owner, 'Counterparty');
+    }
+
+    const questionRes = await analyzeUtterance({
+      utterance: {
+        id: 'u-question',
+        sessionId: 'sess-pact',
+        text: 'Will you send the revised cap table PDF by Friday?',
+        speakerLabel: 'Self (G2)',
+        speakerRole: 'self',
+        isFinal: true,
+        timestamp: Date.now(),
+      },
+      recentUtterances: [],
+      topChunks: [],
+    });
+    assert.equal(questionRes.type, 'none');
   });
 });

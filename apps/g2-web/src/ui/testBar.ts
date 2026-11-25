@@ -95,6 +95,7 @@ export function mountTestBar(
           </select>
           <button type="button" class="pact-btn pact-btn-ok" id="sync-notion-btn">Sync Deal Doc to pgvector</button>
           <button type="button" class="pact-btn pact-btn-warn" id="sim-conflict-btn">Speak Contradiction ("15% rev-share...")</button>
+          <button type="button" class="pact-btn pact-btn-accent" id="sim-pact-btn">Speak Commitment ("Send cap table...")</button>
           <button type="button" class="pact-btn" id="sim-banter-btn">Speak Casual Banter</button>
         </div>
       </section>
@@ -172,6 +173,7 @@ export function mountTestBar(
   const notionSelectEl = root.querySelector<HTMLSelectElement>('#notion-page-select')!;
   const syncNotionBtn = root.querySelector<HTMLButtonElement>('#sync-notion-btn')!;
   const simConflictBtn = root.querySelector<HTMLButtonElement>('#sim-conflict-btn')!;
+  const simPactBtn = root.querySelector<HTMLButtonElement>('#sim-pact-btn')!;
   const simBanterBtn = root.querySelector<HTMLButtonElement>('#sim-banter-btn')!;
   const notionStatusEl = root.querySelector<HTMLElement>('#notion-sync-status')!;
   const windowCountEl = root.querySelector<HTMLElement>('#window-count-badge')!;
@@ -263,6 +265,10 @@ export function mountTestBar(
 
   simConflictBtn.addEventListener('click', () => {
     handlers.onSimulateUtterance?.('Since we agreed on a 15% revenue share cap for this deal...');
+  });
+
+  simPactBtn.addEventListener('click', () => {
+    handlers.onSimulateUtterance?.('I will send the revised cap table PDF by Friday 5pm.');
   });
 
   simBanterBtn.addEventListener('click', () => {

@@ -4,6 +4,8 @@ export type SpeakerRoleTag = 'self' | 'other' | 'unknown';
 
 export type AudioCaptureMode = 'g2_bridge' | 'browser_mic';
 
+export type PactLifecycleStatus = 'draft' | 'pending' | 'locked' | 'declined' | 'dismissed';
+
 export interface UtteranceRecord {
   id: string;
   sessionId: string;
@@ -15,10 +17,29 @@ export interface UtteranceRecord {
   timestamp: number;
 }
 
+export interface PactRecord {
+  id: string;
+  sessionId: string;
+  title: string;
+  owner: string;
+  dueText: string;
+  sourceQuote: string;
+  speakerRole: SpeakerRoleTag;
+  confidence: number;
+  status: PactLifecycleStatus;
+  notionPageId?: string | null;
+  telegramChatId?: string | null;
+  telegramMessageId?: number | null;
+  confirmedBy?: string | null;
+  lockedAt?: string | null;
+  createdAt: string;
+}
+
 export interface SessionStartMessage {
   type: 'session.start';
   sessionId?: string;
   audioSource: AudioCaptureMode;
+  telegramChatId?: string;
 }
 
 export interface SessionStopMessage {
@@ -87,6 +108,12 @@ export interface HudFrameMessage {
   frame: FormattedHudFrame;
 }
 
+export interface PactUpdatedMessage {
+  type: 'pact.updated';
+  pact: PactRecord;
+  sessionPacts: PactRecord[];
+}
+
 export interface RelayErrorMessage {
   type: 'relay.error';
   code: string;
@@ -97,4 +124,5 @@ export type RelayToClientMessage =
   | SessionStatusMessage
   | SttTranscriptMessage
   | HudFrameMessage
+  | PactUpdatedMessage
   | RelayErrorMessage;

@@ -87,6 +87,12 @@ async function bootstrap(): Promise<void> {
           void pactBridge.renderHudState(msg.payload);
           break;
         }
+        case 'pact.updated': {
+          controller?.appendLog(
+            `Pact [${msg.pact.status.toUpperCase()}]: "${msg.pact.title}" (${msg.pact.owner} · ${msg.pact.dueText})${msg.pact.confirmedBy ? ` — ${msg.pact.confirmedBy}` : ''}`
+          );
+          break;
+        }
         case 'relay.error': {
           controller?.appendLog(`Relay Error [${msg.code}]: ${msg.message}`);
           break;
@@ -125,18 +131,22 @@ async function bootstrap(): Promise<void> {
       }
     },
     onSingleTap: (source) => {
-      const current = pactBridge.getCurrentFrame().state;
+      const currentFrame = pactBridge.getCurrentFrame();
+      const current = currentFrame.state;
       controller?.appendLog(`onSingleTap() triggered in state=${current} (source=${source})`);
-      relayClient.sendHudTap('single_tap', current);
-      if (current === 'PACT_DRAFT') {
-        void pactBridge.renderHudState(SAMPLE_HUD_PAYLOADS.SENT_PENDING);
+      const sentToRelay = relayClient.sendHudTap('single_tap', current);
+      if (!sentToRelay && current === 'PACT_DRAFT') {
+        void pactBridge.renderHudState({
+          state: 'SENT_PENDING',
+          title: currentFrame.lines[1] || SAMPLE_HUD_PAYLOADS.SENT_PENDING.state,
+        });
       }
     },
     onDoubleTap: (source) => {
       const current = pactBridge.getCurrentFrame().state;
       controller?.appendLog(`onDoubleTap() triggered in state=${current} (source=${source})`);
-      relayClient.sendHudTap('double_tap', current);
-      if (current === 'PACT_DRAFT' || current === 'CONFLICT') {
+      const sentToRelay = relayClient.sendHudTap('double_tap', current);
+      if (!sentToRelay && (current === 'PACT_DRAFT' || current === 'CONFLICT')) {
         void pactBridge.renderHudState(SAMPLE_HUD_PAYLOADS.DARK_IDLE);
       }
     },
@@ -226,7 +236,8 @@ async function bootstrap(): Promise<void> {
     onStreamTestPcm: () => handleInjectPcmBurst('self'),
     onSyncNotionDealDoc: handleSyncNotionDealDoc,
     onSimulateUtterance: (text) => {
-      relayClient.sendSyntheticSpeech(text, 'other');
+      const role = /\b(?:i\s+will|i'll|we\s+will|we'll|i\s+commit)\b/i.test(text) ? 'self' : 'other';
+      relayClient.sendSyntheticSpeech(text, role);
     },
   });
 

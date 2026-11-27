@@ -120,7 +120,7 @@ export function hasCommitmentCue(text: string): boolean {
 }
 
 /**
- * Single-hop AI analyzer using Claude (Anthropic API or OpenRouter CLAUDE_MODEL) returning strict JSON
+ * Single-hop AI analyzer using Claude (Yantra AI, Anthropic API, or OpenRouter CLAUDE_MODEL) returning strict JSON
  * for `conflict`, `pact`, or `none`:
  * - Conflict requires confidence >= 0.85 and explicit contradiction against `topChunks`.
  * - Pact requires confidence >= 0.82 + concrete deliverable + (owner OR deadline/numeric term),
@@ -145,15 +145,17 @@ export async function analyzeUtterance(params: {
     return { type: 'none', confidence: 0 };
   }
 
+  const yantraKey = process.env.YANTRA_API_KEY?.trim();
   const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim();
   const openRouterKey = process.env.OPENROUTER_API_KEY?.trim();
 
-  if (anthropicKey || openRouterKey) {
+  if (yantraKey || anthropicKey || openRouterKey) {
     try {
       const raw = await callClaudeUnifiedJson({
         utterance,
         recentUtterances: recentUtterances.slice(-3),
         topChunks: checkConflict ? topChunks.slice(0, 3) : [],
+        yantraKey,
         anthropicKey,
         openRouterKey,
       });
@@ -303,10 +305,11 @@ async function callClaudeUnifiedJson(params: {
   utterance: UtteranceRecord;
   recentUtterances: UtteranceRecord[];
   topChunks: MatchedDocChunk[];
+  yantraKey?: string;
   anthropicKey?: string;
   openRouterKey?: string;
 }): Promise<Record<string, any>> {
-  const { utterance, recentUtterances, topChunks, anthropicKey, openRouterKey } = params;
+  const { utterance, recentUtterances, topChunks, yantraKey, anthropicKey, openRouterKey } = params;
 
   const systemPrompt = [
     'You are PACT Live Deal Intelligence for an Even Realities G2 heads-up display.',
@@ -337,6 +340,18 @@ async function callClaudeUnifiedJson(params: {
     })),
   });
 
+  // Yantra AI (apikeys.in) — OpenAI-compatible gateway, preferred when configured
+  if (yantraKey) {
+    return callOpenAiCompatibleJson({
+      label: 'Yantra',
+      url: `${getYantraBaseUrl()}/chat/completions`,
+      apiKey: yantraKey,
+      model: process.env.CLAUDE_MODEL?.trim() || YANTRA_DEFAULT_MODEL,
+      systemPrompt,
+      userPrompt,
+    });
+  }
+
   if (anthropicKey) {
     const model = process.env.CLAUDE_MODEL?.replace(/^anthropic\//, '') || 'claude-3-5-haiku-latest';
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -365,11 +380,36 @@ async function callClaudeUnifiedJson(params: {
     return parseJsonObject(rawText);
   }
 
-  const model = process.env.CLAUDE_MODEL || 'anthropic/claude-3.5-haiku';
-  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  return callOpenAiCompatibleJson({
+    label: 'OpenRouter',
+    url: 'https://openrouter.ai/api/v1/chat/completions',
+    apiKey: openRouterKey ?? '',
+    model: process.env.CLAUDE_MODEL || 'anthropic/claude-3.5-haiku',
+    systemPrompt,
+    userPrompt,
+  });
+}
+
+export const YANTRA_DEFAULT_BASE_URL = 'https://api.aitklabs.in/v1';
+export const YANTRA_DEFAULT_MODEL = 'anthropic/claude-haiku-5-5';
+
+export function getYantraBaseUrl(): string {
+  return (process.env.YANTRA_BASE_URL?.trim() || YANTRA_DEFAULT_BASE_URL).replace(/\/+$/, '');
+}
+
+async function callOpenAiCompatibleJson(params: {
+  label: string;
+  url: string;
+  apiKey: string;
+  model: string;
+  systemPrompt: string;
+  userPrompt: string;
+}): Promise<Record<string, any>> {
+  const { label, url, apiKey, model, systemPrompt, userPrompt } = params;
+  const res = await fetch(url, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${openRouterKey}`,
+      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -385,7 +425,8 @@ async function callClaudeUnifiedJson(params: {
   });
 
   if (!res.ok) {
-    throw new Error(`OpenRouter HTTP ${res.status}`);
+    const detail = await res.text().catch(() => '');
+    throw new Error(`${label} HTTP ${res.status}${detail ? `: ${detail.slice(0, 200)}` : ''}`);
   }
   const data = (await res.json()) as {
     choices?: Array<{ message?: { content?: string } }>;

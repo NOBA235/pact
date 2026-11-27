@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { formatHudFrame } from '@pact/shared';
 import {
@@ -12,6 +12,22 @@ import {
   detectContradiction,
   analyzeUtterance,
 } from './detector.js';
+
+// Keep these tests hermetic: force the deterministic analyzer/embeddings even if
+// cloud LLM keys (e.g. YANTRA_API_KEY) are present in the developer's environment.
+const CLOUD_KEYS = ['YANTRA_API_KEY', 'ANTHROPIC_API_KEY', 'OPENROUTER_API_KEY', 'OPENAI_API_KEY'] as const;
+const savedKeys: Record<string, string | undefined> = {};
+before(() => {
+  for (const k of CLOUD_KEYS) {
+    savedKeys[k] = process.env[k];
+    delete process.env[k];
+  }
+});
+after(() => {
+  for (const k of CLOUD_KEYS) {
+    if (savedKeys[k] !== undefined) process.env[k] = savedKeys[k];
+  }
+});
 
 describe('Notion Context Indexer & Contradiction Radar', () => {
   it('chunks documents around 350 chars with overlap on word boundaries', () => {

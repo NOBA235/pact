@@ -79,7 +79,7 @@ flowchart LR
 
 ## 4. Safety, Security & Privacy Guarantees
 
-- **Zero Client Secrets:** `apps/g2-web` contains zero API keys (`DEEPGRAM_API_KEY`, `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY`, `NOTION_API_KEY`, `TELEGRAM_BOT_TOKEN`, and `SUPABASE_SERVICE_ROLE_KEY` live exclusively on `apps/relay`).
+- **Zero Client Secrets:** `apps/g2-web` contains zero API keys (`DEEPGRAM_API_KEY`, `YANTRA_API_KEY` / `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY`, `NOTION_API_KEY`, `TELEGRAM_BOT_TOKEN`, and `SUPABASE_SERVICE_ROLE_KEY` live exclusively on `apps/relay`).
 - **Zero Raw Audio Persistence:** 16 kHz signed 16-bit PCM frames (`3,200` bytes / 100 ms) are streamed ephemerally in memory to Deepgram and discarded immediately. No audio column or bucket exists anywhere in `supabase/schema.sql`.
 - **Explicit Participant Consent Gate:** The companion `Start Session` control remains locked until the explicit ephemeral-audio consent checkbox is checked.
 - **Zero Autonomous Writes:** Neither Claude nor the relay can write to Notion or message a Telegram group autonomously. Every write requires a physical single-tap confirmation on the G2 HUD while `PACT_DRAFT` is displayed.

@@ -277,17 +277,22 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
 
   const apiKey = (
     process.env.OPENAI_API_KEY ||
+    process.env.YANTRA_API_KEY ||
     process.env.OPENROUTER_API_KEY ||
     ''
   ).trim();
 
   if (apiKey) {
     const isOpenAiDirect = Boolean(process.env.OPENAI_API_KEY?.trim());
+    const isYantra = !isOpenAiDirect && Boolean(process.env.YANTRA_API_KEY?.trim());
+    const yantraBase = (process.env.YANTRA_BASE_URL?.trim() || 'https://api.aitklabs.in/v1').replace(/\/+$/, '');
     const endpoint =
       process.env.EMBEDDING_API_URL?.trim() ||
       (isOpenAiDirect
         ? 'https://api.openai.com/v1/embeddings'
-        : 'https://openrouter.ai/api/v1/embeddings');
+        : isYantra
+          ? `${yantraBase}/embeddings`
+          : 'https://openrouter.ai/api/v1/embeddings');
     const model =
       process.env.EMBEDDING_MODEL?.trim() ||
       (isOpenAiDirect ? 'text-embedding-3-small' : 'openai/text-embedding-3-small');

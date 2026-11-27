@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     rootDir: .
-    buildCommand: npm install && npm run typecheck
+    buildCommand: npm install --include=dev && npm run typecheck
     startCommand: npm --workspace=@pact/relay run start
     healthCheckPath: /health
     envVars:
@@ -18,12 +18,16 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      - key: YANTRA_API_KEY
+        sync: false
+      - key: YANTRA_BASE_URL
+        value: https://api.aitklabs.in/v1
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: OPENROUTER_API_KEY
         sync: false
       - key: CLAUDE_MODEL
-        value: anthropic/claude-3-5-haiku-latest
+        value: anthropic/claude-haiku-5-5
       - key: EMBEDDING_MODEL
         value: openai/text-embedding-3-small
       - key: NOTION_API_KEY

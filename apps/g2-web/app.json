@@ -13,6 +13,8 @@
       "whitelist": [
         "http://localhost:8787",
         "ws://localhost:8787",
+        "https://pact-mnjo.onrender.com",
+        "wss://pact-mnjo.onrender.com",
         "https://pact-relay.onrender.com",
         "wss://pact-relay.onrender.com",
         "https://pact-relay.fly.dev",
